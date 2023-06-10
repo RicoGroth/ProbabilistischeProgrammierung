@@ -4,13 +4,14 @@
 # us -> sex (1 female, 0 male)
 # wk -> weight (kg)
 import pandas as pd
-from requests_threads import AsyncSession
 from requests import Response
-import re
+import requests_threads
+from re import findall as regex_findall
 from enum import Enum
 import math
 
-session = AsyncSession(n=50)
+
+session = requests_threads.AsyncSession(n=10)
 
 
 def full_print(df: pd.DataFrame):
@@ -19,7 +20,7 @@ def full_print(df: pd.DataFrame):
 
 
 class Sex(Enum):
-    FEMALE = 1,
+    FEMALE = 1
     MALE = 0
 
 
@@ -33,12 +34,12 @@ def from_int_to_sex(sex_cell: int) -> Sex:
 
 
 class BMI_CATEGORY(Enum):
-    ANOREXIA = 0,
-    UNDERWEIGHT = 1,
-    LIGHT_UNDERWEIGHT = 2,
-    NORMAL = 3,
-    LIGHT_OVERWEIGHT = 4,
-    OVERWEIGHT = 5,
+    ANOREXIA = 0
+    UNDERWEIGHT = 1
+    LIGHT_UNDERWEIGHT = 2
+    NORMAL = 3
+    LIGHT_OVERWEIGHT = 4
+    OVERWEIGHT = 5
     ADIPOSITAS = 6
 
 
@@ -47,7 +48,7 @@ def create_request_url(age: int, weightInKilograms: int, sex: Sex, heightInCenti
     host = "de.smartbmicalculator.com"
     path = "ergebnis.html"
     params = {
-            "unit": 0,  # kilogram
+            "unit": 0,  # 0 == kilogram
             "hc": heightInCentimeters,
             "wk": weightInKilograms,
             "us": sex.value,
@@ -75,36 +76,63 @@ def categorize_sbmi(sbmi: int) -> BMI_CATEGORY:
 
 
 def from_response_to_bmi_category(response: Response) -> BMI_CATEGORY:
-    html = (await response).content.decode("utf-8")
-    matches = re.findall("SBMI = .{0,2}/.{0,2}", html)
+    html = response.content.decode("utf-8")
+    matches = regex_findall("SBMI = .{0,2}/.{0,2}", html)
     if len(matches) == 0:
         raise Exception("No SBMI was calculated.")
     sbmi_parsed = int(matches[0].split()[2].split("/")[0])
     return categorize_sbmi(sbmi_parsed)
 
 
-def sort_columns(df: pd.DataFrame) -> pd.DataFrame:
-    columns = df.columns.tolist()
-    return df[columns[0:(len(columns) - 2)]
-              + [columns[len(columns) - 1]]
-              + [columns[len(columns) - 2]]]
-
-
+# work in progress
 def log_pef_prediction(age, heightInCentimeters, sex: Sex):
     male_prediction = 0.367 * math.log(age) - 0.012 * age - 58.8 / heightInCentimeters + 5.63
     female_prediction = 0.544
     return male_prediction if sex == sex.MALE else female_prediction
 
 
-def main():
-    data = pd.read_csv("dataset/atemwege.asc", delim_whitespace=True)
-    data["gebja"] = data["gebja"] + 1900
-    data["alter"] = data["untja"] - data["gebja"]
-    data = data.drop(columns=["gebmo", "gebtg", "gebja", "untmo", "unttg", "untja"])
-    data = data.drop(columns=["pef", "fvc", "fef50", "fef75"])
-    data = data.drop(columns=["gross", "gewi"])
-    print(data.columns)
+def send_request(url: str, verbose=False):
+    if verbose:
+        print(f"Sending request: {url}")
+    return session.get(url)
 
+
+async def resolve_promise(promise, verbose=False):
+    if verbose:
+        print(f"Resolving promise {promise}")
+    return await promise
+
+
+def get_bmi_category(response: Response):
+    try:
+        return from_response_to_bmi_category(response)
+    except Exception as exception:
+        print(exception)
+        return BMI_CATEGORY.NORMAL
+
+
+async def get_bmi_column(df: pd.DataFrame):
+    urls = [create_request_url(age, weightInKilograms, from_int_to_sex(sex), heightInCentimeters)
+            for age, weightInKilograms, sex, heightInCentimeters in
+            zip(df["untja"] - (df["gebja"] + 1900), df["gewi"], df["sex"], df["gross"])]
+    promises = [send_request(url, verbose=True) for url in urls]
+    responses = [await resolve_promise(promise, verbose=True) for promise in promises]
+    return [get_bmi_category(response) for response in responses]
+
+
+def drop_unnecessary_columns(df: pd.DataFrame) -> pd.DataFrame:
+    return df.drop(columns=["nr",
+                     "gebmo", "gebtg", "gebja", "untmo", "unttg", "untja",
+                     "pef", "fvc", "fef50", "fef75",
+                     "gross", "gewi",
+                     ])
+
+
+async def main():
+    data = pd.read_csv("dataset/atemwege.asc", delim_whitespace=True)
+    data["sbmi"] = [sbmi.value for sbmi in await get_bmi_column(data)]
+    data = drop_unnecessary_columns(data)
+    data.to_csv(path_or_buf="./dataset/atemwege-prepared.csv", sep=" ")
 
 if __name__ == "__main__":
-    main()
+    session.run(main)
