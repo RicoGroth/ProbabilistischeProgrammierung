@@ -11,6 +11,7 @@ import math
 
 DATASET_PATH = os.path.join(os.path.curdir, "dataset")
 ORIGINAL_DATASET_PATH = os.path.join(DATASET_PATH, "immutable", "atemwege.asc")
+WITH_BMI = os.path.join(DATASET_PATH, "immutable", "with-bmi.csv")
 TRAIN_DATASET_PATH = os.path.join(DATASET_PATH, "train.csv")
 VALIDATION_DATASET_PATH = os.path.join(DATASET_PATH, "validation.csv")
 TEST_DATASET_PATH = os.path.join(DATASET_PATH, "test.csv")
@@ -187,20 +188,63 @@ class DataFrameManipulator:
         self.df["bmi"] = [sbmi.value for sbmi in await get_bmi_column(self.df)]
         return self
 
-    def get_dataframe(self) -> pd.DataFrame:
-        return self.df.drop(columns=self.__columns_to_drop, axis=1)
+    def with_joined_smoking_parents(self):
+        self.df["rauel"] = self.df["raumu"] + self.df["rauva"]
 
-    def write_to_disk(self, path=os.path.join(DATASET_PATH, "train-prepared.csv")):
+    def with_joined_smoking_parents_bool(self):
+        self.df["rauel_bool"] = self.df.apply(lambda x: 1 if x["rauva"] > 0 or x["raumu"] > 0 else 0, axis=1)
+
+    def with_age(self):
+        self.df["alter"] = self.df["untja"] - (self.df["gebja"] + 1900)
+
+    def with_age_categorized(self):
+        def cat_age(t):
+            x = t.loc["alter"]
+            if x in range(7, 10):
+                return 0
+            elif x in range(10, 14):
+                return 1
+            else:
+                return 2
+
+        def cat_age_teenager(t):
+            x = t.loc["alter"]
+            if x < 13:
+                return 0
+            else:
+                return 1
+
+        self.with_age()
+        self.without(["alter"])
+        self.df["alter_cat"] = self.df.apply(cat_age_teenager, axis=1)
+
+    def with_bmi_small_extrema(self):
+        def categorize(t):
+            x = t.loc["bmi"]
+            if x == 0 or x == 6:
+                return 2
+            elif x == 1 or x == 5:
+                return 1
+            else:
+                return 0
+
+        self.df["bmiex"] = self.df.apply(categorize, axis=1)
+
+    def get_dataframe(self) -> pd.DataFrame:
+        out = self.df.drop(columns=self.__columns_to_drop, axis=1)
+        print(f"Columns: {out.columns}")
+        return out
+
+    def write_to_disk(self, filename):
         """
         Writes the manipulated dataframe to the specified or default path.
-
-        path                path of the file to write
         """
+        path = os.path.join(DATASET_PATH, filename)
         self.get_dataframe().to_csv(path_or_buf=path, sep=" ")
         self.__vprint(f"Manipulated dataframe was written to {path}", 1)
 
 
-def read_complete_dataset(path: str = ORIGINAL_DATASET_PATH) \
+def read_complete_dataset(path: str = WITH_BMI) \
         -> pd.DataFrame:
     """
     Reads the complete provided dataset as is into a pandas dataframe.
@@ -289,21 +333,57 @@ def just_split_dataset():
     split_train_validation_test(read_complete_dataset())
 
 
-async def _main():
-    if not os.path.exists(TRAIN_DATASET_PATH):
-        just_split_dataset()
-    dataset = pd.read_csv(TRAIN_DATASET_PATH, delim_whitespace=True)
+def prepare(filepath: str, filename=None) -> pd.DataFrame:
+    dataset = pd.read_csv(filepath, delim_whitespace=True)
     manipulator = DataFrameManipulator(dataset, verbosity_level=1, hard_fail=False)
     manipulator.without(["nr"])
+    manipulator.without(["rauva", "raumu"])
+    # manipulator.with_joined_smoking_parents()
+    # manipulator.with_joined_smoking_parents_bool()
     manipulator.without(["fef50", "fef75", "pef", "fvc"])
     manipulator.without(["gebja", "gebtg", "gebmo", "untja", "unttg", "untmo"])
-    await manipulator.with_bmi()
-    manipulator.write_to_disk()
-    print(manipulator.get_dataframe())
+    manipulator.without(["gross", "gewi", "sex"])
+
+    manipulator.without(["aller"])
+    manipulator.without(["schnu"])
+    manipulator.without(["sozio"])
+    manipulator.without(["kehle"])
+    # manipulator.without(["huste"])
+
+    manipulator.without(["bmi"])
+    manipulator.with_bmi_small_extrema()
+    manipulator.without(["bmiex"])
+
+    manipulator.without(["rauel_bool"])
+    manipulator.without(["zone"])
+
+    # manipulator.with_age_categorized()
+
+    if filename is not None:
+        manipulator.write_to_disk(filename)
+    return manipulator.get_dataframe()
+
+
+def _main():
+    if not os.path.exists(TRAIN_DATASET_PATH):
+        just_split_dataset()
+    for path, output_path in [
+            (TRAIN_DATASET_PATH, "train-prepared.csv"),
+            (VALIDATION_DATASET_PATH, "validation-prepared.csv"),
+            (TEST_DATASET_PATH, "test-prepared.csv")]:
+        prepare(path, output_path)
+
+
+async def persist_bmi():
+    df = read_complete_dataset()
+    m = DataFrameManipulator(df, hard_fail=False, verbosity_level=1)
+    await m.with_bmi()
+    m.write_to_disk("immutable/with-bmi.csv")
 
 
 def main():
-    session.run(_main)
+    # session.run(persist_bmi)
+    _main()
 
 
 if __name__ == "__main__":
