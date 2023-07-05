@@ -2,26 +2,17 @@ from pgmpy.models import BayesianNetwork
 from pgmpy.estimators import (MaximumLikelihoodEstimator, ParameterEstimator, BayesianEstimator)
 from pgmpy.sampling import BayesianModelSampling
 from pgmpy.metrics import log_likelihood_score
+from pgmpy.inference import VariableElimination
 from random import random
 import pandas as pd
 from math import floor
 from typing import List
-from data_preparation import (Columns, prepare_dataframe)
+from data_preparation import (Columns, session)
 
 
 def full_print(df: pd.DataFrame):
     with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.precision', 3,):
         print(df)
-
-
-def build_graph(edges: List[tuple[Columns, Columns]]):
-    return [(c1.value, c2.value) for c1, c2 in edges]
-
-
-model = BayesianNetwork(build_graph([
-    (Columns.HAT_HAEUFIG_HUSTEN, Columns.KRANKHEIT_LUNGE_BRONCHIEN),
-    ])
-)
 
 
 def half(df: pd.DataFrame) -> int:
@@ -50,8 +41,8 @@ def tp_fp_tn_fn(y_pred: List[int], y_real: List[int]) -> tuple[int, int, int, in
 def print_metrics(prediction, validation, model, data):
     y_pred = list(prediction[Columns.KRANKHEIT_LUNGE_BRONCHIEN.value])
     y_real = list(validation[Columns.KRANKHEIT_LUNGE_BRONCHIEN.value])
-    print("precision: ", precision(y_pred, y_real))
-    print("accuracy: ", accuracy(y_pred, y_real))
+    # print("precision: ", precision(y_pred, y_real))
+    # print("accuracy: ", accuracy(y_pred, y_real))
     print("log likelihood score: ", log_likelihood_score(model=model, data=data))
     tp, fp, tn, fn = tp_fp_tn_fn(y_pred, y_real)
     print(f"{tp = }")
@@ -79,11 +70,59 @@ def compare_prediction_and_validation(prediction: pd.DataFrame, validation: pd.D
     print(validation["kehle"].corr(validation[Columns.KRANKHEIT_LUNGE_BRONCHIEN.value]))
 
 
-df = pd.read_csv("./dataset/prepared/train.csv")
-validation = pd.read_csv("./dataset/prepared/validation.csv")
-model.fit(df, estimator=BayesianEstimator)
-[print(c) for c in model.get_cpds()]
-prediction = model.predict(validation.drop(Columns.KRANKHEIT_LUNGE_BRONCHIEN.value, axis=1))
+def get_used_columns(graph: List[tuple[Columns, Columns]]):
+    used_columns = []
+    for edge in graph:
+        node1, node2 = edge
+        used_columns.append(node1)
+        used_columns.append(node2)
+    return [u.value for u in used_columns]
 
-print_metrics(prediction, validation, model, df)
-# compare_prediction_and_validation(prediction, validation)
+
+def get_train_validation(graph: List[tuple[Columns, Columns]]):
+    used_columns = get_used_columns(graph)
+    train = pd.read_csv("./dataset/prepared/train.csv")
+    train = train.drop(columns=[c for c in train.columns if c not in used_columns])
+    validation = pd.read_csv("./dataset/prepared/validation.csv")
+    validation = validation.drop(columns=[c for c in validation.columns if c not in used_columns])
+    return train, validation
+
+
+def build_model(graph):
+    model = BayesianNetwork([(c1.value, c2.value) for c1, c2 in graph])
+    train, validation = get_train_validation(graph)
+    model.fit(train, estimator=BayesianEstimator)
+    return model, train, validation
+
+
+def print_model_info(model, train, validation):
+    prediction = model.predict(validation.drop(Columns.KRANKHEIT_LUNGE_BRONCHIEN.value, axis=1))
+    [print(c) for c in model.get_cpds()]
+    print_metrics(prediction, validation, model, train)
+    # compare_prediction_and_validation(prediction, validation)
+
+
+def get_original_graph():
+    """
+    log likelihood score:  -5413.999050408858
+    tp = 37
+    fp = 17
+    tn = 206
+    fn = 128
+    """
+    return [
+            (Columns.HAT_HAEUFIG_HUSTEN, Columns.HAT_KEHLKOPFENTZUENDUNG),
+            (Columns.HAT_HAEUFIG_SCHNUPFEN, Columns.HAT_KEHLKOPFENTZUENDUNG),
+            (Columns.ALLERGIE_ATEMWEGE, Columns.HAT_HAEUFIG_HUSTEN),
+            (Columns.ALLERGIE_ATEMWEGE, Columns.HAT_HAEUFIG_SCHNUPFEN),
+            (Columns.HAT_KEHLKOPFENTZUENDUNG, Columns.KRANKHEIT_LUNGE_BRONCHIEN),
+            (Columns.UMWELTBELASTUNG, Columns.KRANKHEIT_LUNGE_BRONCHIEN),
+            (Columns.IST_EIN_ELTERNTEIL_RAUCHER, Columns.KRANKHEIT_LUNGE_BRONCHIEN),
+            (Columns.BILDUNGSSTAND_ELTERN, Columns.KRANKHEIT_LUNGE_BRONCHIEN),
+            (Columns.BMI, Columns.KRANKHEIT_LUNGE_BRONCHIEN),
+            ]
+
+
+graph = get_original_graph()
+model, train, validation = build_model(graph)
+print_model_info(model, train, validation)

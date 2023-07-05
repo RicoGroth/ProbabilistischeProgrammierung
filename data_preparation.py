@@ -44,6 +44,10 @@ class Columns(Enum):
     IST_EIN_ELTERNTEIL_RAUCHER = 'rauel'
     ANZAHL_RAUCHENDE_ELTERNTEILE = 'rauan'
 
+    @staticmethod
+    def all() -> List[Columns]:
+        return [c for c in Columns]
+
 
 class Sex(Enum):
     FEMALE = 1
@@ -129,8 +133,9 @@ def with_number_of_smoking_parents(df: pd.DataFrame) -> pd.DataFrame:
 
 def with_at_least_one_smoking_parent(df: pd.DataFrame) -> pd.DataFrame:
     def does_one_parent_smoke(x):
-        return x[Columns.IST_VATER_RAUCHER.value] > 0\
-            or x[Columns.IST_MUTTER_RAUCHERIN.value] > 0
+        return 1 if x[Columns.IST_VATER_RAUCHER.value] > 0\
+                or x[Columns.IST_MUTTER_RAUCHERIN.value] > 0\
+                else 0
     df[Columns.IST_EIN_ELTERNTEIL_RAUCHER.value] = df.apply(does_one_parent_smoke, axis=1)
     return df
 
@@ -162,7 +167,7 @@ async def fetch_bmi_for_all_rows(df: pd.DataFrame, fallback: Union[BMI, None] = 
 
 async def prepare_dataframe(df: pd.DataFrame,
                             allow_fetching_outside_data: bool,
-                            columns_to_keep: List[Columns] = [c for c in Columns],
+                            columns_to_keep: List[Columns],
                             ) -> pd.DataFrame:
     df = with_age(df)
     df = with_number_of_smoking_parents(df)
@@ -171,7 +176,8 @@ async def prepare_dataframe(df: pd.DataFrame,
             and Columns.BMI.value not in df.columns\
             and allow_fetching_outside_data:
         df = await fetch_bmi_for_all_rows(df, fallback=BMI.NORMAL, hard_fail=False)
-    if any([c not in Columns for c in columns_to_keep]):
+    all_columns = Columns.all()
+    if any([c not in all_columns for c in columns_to_keep]):
         columns = [c.value for c in columns_to_keep]
         invalid_columns = [c for c in columns if c not in df.columns]
         [print(f'Skipping {c} since it is not a column in the dataframe') for c in invalid_columns]
@@ -188,7 +194,7 @@ async def write_prepared_datasets(train_name: str, validation_name: str, test_na
         'atemwege.asc'
         )
     original_dataset = pd.read_csv(original_dataset_path, delim_whitespace=True)
-    prepared = await prepare_dataframe(original_dataset, allow_fetching_outside_data=True)
+    prepared = await prepare_dataframe(original_dataset, allow_fetching_outside_data=True, columns_to_keep=Columns.all())
     train, validation, test = split_train_validation_test(
             prepared,
             target_name=Columns.KRANKHEIT_LUNGE_BRONCHIEN.value,
