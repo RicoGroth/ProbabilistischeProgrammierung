@@ -6,6 +6,7 @@ from random import random
 import pandas as pd
 from math import floor
 from typing import List
+from data_preparation import (Columns, prepare_dataframe)
 
 
 def full_print(df: pd.DataFrame):
@@ -13,27 +14,13 @@ def full_print(df: pd.DataFrame):
         print(df)
 
 
-model = BayesianNetwork(
-    [
-        # ("aller", "huste"),
-        # ("aller", "schnu"),
-        # ("huste", "kehle"),
-        # ("schnu", "kehle"),
-        # ("kehle", "huste"),
-        # ("kehle", "schnu"),
-        ("huste", "lubro"),
-        # ("kehle", "lubro"),
-        # ("zone", "lubro"),
-        # ("alter", "lubro"),
-        # ("alter_cat", "lubro"),
-        # ("rauel", "lubro"),
-        # ("rauel_bool", "lubro"),
-        # ("rauva", "lubro"),
-        # ("raumu", "lubro"),
-        # ("sozio", "lubro"),
-        # ("bmi", "lubro"),
-        # ("bmiex", "lubro"),
-    ]
+def build_graph(edges: List[tuple[Columns, Columns]]):
+    return [(c1.value, c2.value) for c1, c2 in edges]
+
+
+model = BayesianNetwork(build_graph([
+    (Columns.HAT_HAEUFIG_HUSTEN, Columns.KRANKHEIT_LUNGE_BRONCHIEN),
+    ])
 )
 
 
@@ -61,8 +48,8 @@ def tp_fp_tn_fn(y_pred: List[int], y_real: List[int]) -> tuple[int, int, int, in
 
 
 def print_metrics(prediction, validation, model, data):
-    y_pred = list(prediction["lubro"])
-    y_real = list(validation["lubro"])
+    y_pred = list(prediction[Columns.KRANKHEIT_LUNGE_BRONCHIEN.value])
+    y_real = list(validation[Columns.KRANKHEIT_LUNGE_BRONCHIEN.value])
     print("precision: ", precision(y_pred, y_real))
     print("accuracy: ", accuracy(y_pred, y_real))
     print("log likelihood score: ", log_likelihood_score(model=model, data=data))
@@ -82,20 +69,21 @@ def get_lubro(model):
 
 def compare_prediction_and_validation(prediction: pd.DataFrame, validation: pd.DataFrame):
     validation.index = prediction.index
-    validation["prediction"] = prediction["lubro"]
-    validation["tp"] = validation.apply(lambda x: 1 if x.loc["prediction"] == 1 and x.loc["lubro"] == 1 else 0, axis=1)
-    validation["fp"] = validation.apply(lambda x: 1 if x.loc["prediction"] == 1 and x.loc["lubro"] == 0 else 0, axis=1)
-    validation["tn"] = validation.apply(lambda x: 1 if x.loc["prediction"] == 0 and x.loc["lubro"] == 0 else 0, axis=1)
-    validation["fn"] = validation.apply(lambda x: 1 if x.loc["prediction"] == 0 and x.loc["lubro"] == 1 else 0, axis=1)
+    validation["prediction"] = prediction[Columns.KRANKHEIT_LUNGE_BRONCHIEN.value]
+    validation["tp"] = validation.apply(lambda x: 1 if x.loc["prediction"] == 1 and x.loc[Columns.KRANKHEIT_LUNGE_BRONCHIEN.value] == 1 else 0, axis=1)
+    validation["fp"] = validation.apply(lambda x: 1 if x.loc["prediction"] == 1 and x.loc[Columns.KRANKHEIT_LUNGE_BRONCHIEN.value] == 0 else 0, axis=1)
+    validation["tn"] = validation.apply(lambda x: 1 if x.loc["prediction"] == 0 and x.loc[Columns.KRANKHEIT_LUNGE_BRONCHIEN.value] == 0 else 0, axis=1)
+    validation["fn"] = validation.apply(lambda x: 1 if x.loc["prediction"] == 0 and x.loc[Columns.KRANKHEIT_LUNGE_BRONCHIEN.value] == 1 else 0, axis=1)
     mask = (validation["kehle"] != 1) & (validation["fn"] != 0)
-    # full_print(validation[mask].drop(["lubro", "prediction"], axis=1))
-    print(validation["kehle"].corr(validation["lubro"]))
+    # full_print(validation[mask].drop([Columns.KRANKHEIT_LUNGE_BRONCHIEN.value, "prediction"], axis=1))
+    print(validation["kehle"].corr(validation[Columns.KRANKHEIT_LUNGE_BRONCHIEN.value]))
 
 
-df = pd.read_csv("./dataset/train-prepared.csv", delim_whitespace=True)
-validation = pd.read_csv("./dataset/validation-prepared.csv", delim_whitespace=True)
+df = pd.read_csv("./dataset/prepared/train.csv")
+validation = pd.read_csv("./dataset/prepared/validation.csv")
 model.fit(df, estimator=BayesianEstimator)
 [print(c) for c in model.get_cpds()]
-prediction = model.predict(validation.drop("lubro", axis=1))
+prediction = model.predict(validation.drop(Columns.KRANKHEIT_LUNGE_BRONCHIEN.value, axis=1))
+
 print_metrics(prediction, validation, model, df)
 # compare_prediction_and_validation(prediction, validation)
