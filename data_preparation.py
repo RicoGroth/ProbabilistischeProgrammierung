@@ -40,6 +40,7 @@ class Columns(Enum):
 
     # Beigefuegte Spalten
     BMI = 'bmi'
+    BMI_BERECHNET = 'bmi_b'
     ALTER = 'alter'
     ALTER_KATEGORISIERT = 'altka'
     IST_EIN_ELTERNTEIL_RAUCHER = 'rauel'
@@ -141,7 +142,8 @@ def with_at_least_one_smoking_parent(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-async def fetch_bmi_for_all_rows(df: pd.DataFrame, fallback: Union[BMI, None] = None, hard_fail: bool = False) -> pd.DataFrame:
+async def fetch_bmi_for_all_rows(df_path: str, sep: str, fallback: Union[BMI, None] = None, hard_fail: bool = False) -> pd.DataFrame:
+    df = pd.read_csv(df_path, sep=sep)
     df = with_age(df)
     urls = [f'https://de.smartbmicalculator.com/ergebnis.html?hc={h}&wk={w}&us={Sex.from_int(s).value}&ua={a}&unit=0'
             for a, w, s, h in
@@ -166,38 +168,31 @@ async def fetch_bmi_for_all_rows(df: pd.DataFrame, fallback: Union[BMI, None] = 
     return df
 
 
-async def prepare_dataframe(df: pd.DataFrame,
-                            allow_fetching_outside_data: bool,
-                            columns_to_keep: List[Columns],
-                            ) -> pd.DataFrame:
-    df = with_age(df)
-    df = with_number_of_smoking_parents(df)
-    df = with_at_least_one_smoking_parent(df)
-    if Columns.BMI in columns_to_keep\
-            and Columns.BMI.value not in df.columns\
-            and allow_fetching_outside_data:
-        df = await fetch_bmi_for_all_rows(df, fallback=BMI.NORMAL, hard_fail=False)
-    all_columns = Columns.all()
-    if any([c not in all_columns for c in columns_to_keep]):
-        columns = [c.value for c in columns_to_keep]
-        invalid_columns = [c for c in columns if c not in df.columns]
-        [print(f'Skipping {c} since it is not a column in the dataframe') for c in invalid_columns]
-        valid_columns = [c for c in columns if c in df.columns]
-        df = df.drop(columns=valid_columns)
+def with_calculated_bmi(df: pd.DataFrame) -> pd.DataFrame:
+    def t(x):
+        gew = x.loc[Columns.KOERPERGEWICHT.value]
+        gro = x.loc[Columns.KOERPERGROESSE.value] / 100
+        return gew / (gro ** 2)
+    df[Columns.BMI_BERECHNET.value] = df.apply(t, axis=1)
     return df
 
 
-async def write_prepared_datasets(train_name: str, validation_name: str, test_name: str, write_path: str):
-    original_dataset_path = path.join(
-        path.abspath(path.curdir),
-        'dataset',
-        'immutable',
-        'atemwege.asc'
-        )
-    original_dataset = pd.read_csv(original_dataset_path, delim_whitespace=True)
-    prepared = await prepare_dataframe(original_dataset, allow_fetching_outside_data=True, columns_to_keep=Columns.all())
+def prepare_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    df = with_age(df)
+    df = with_number_of_smoking_parents(df)
+    df = with_at_least_one_smoking_parent(df)
+    df = with_calculated_bmi(df)
+    return df
+
+
+def write_split_datasets(
+        complete_data_set: pd.DataFrame,
+        train_name: str,
+        validation_name: str,
+        test_name: str,
+        write_path: str):
     train, validation, test = split_train_validation_test(
-            prepared,
+            complete_data_set,
             target_name=Columns.KRANKHEIT_LUNGE_BRONCHIEN.value,
             train_size=.6,
             validation_size=.25,
@@ -217,16 +212,27 @@ async def write_prepared_datasets(train_name: str, validation_name: str, test_na
     print(f'Test data written to {test_path}')
 
 
+async def get_original_dataset():
+    immutable_path = path.join(path.abspath(path.curdir), 'dataset', 'immutable')
+    original_dataset_path = path.join(immutable_path, 'atemwege.asc')
+    prepared_original_dataset_path = path.join(immutable_path, 'atemwege-prepared.csv')
+    if not path.exists(prepared_original_dataset_path):
+        print(f'{prepared_original_dataset_path} doesn\'t exist.')
+        df = await fetch_bmi_for_all_rows(original_dataset_path, sep=' ', fallback=BMI.NORMAL, hard_fail=False)
+        df.to_csv(path_or_buf=prepared_original_dataset_path)
+    return pd.read_csv(prepared_original_dataset_path)
+
+
 async def main():
-    train_name = 'train.csv'
-    validation_name = 'validation.csv'
-    test_name = 'test.csv'
     prepared_data_path = path.join(path.abspath(path.curdir), 'dataset', 'prepared')
-    all_files_exist = all([path.exists(path.join(prepared_data_path, f))
-                           for f in [train_name, validation_name, test_name]
-                           ])
-    if not all_files_exist:
-        await write_prepared_datasets(train_name, validation_name, test_name, prepared_data_path)
+    prepared = prepare_dataframe(await get_original_dataset())
+    write_split_datasets(
+            prepared,
+            path.join(prepared_data_path, 'train.csv'),
+            path.join(prepared_data_path, 'validation.csv'),
+            path.join(prepared_data_path, 'test.csv'),
+            prepared_data_path
+            )
 
 
 if __name__ == "__main__":
