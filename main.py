@@ -1,5 +1,5 @@
 from pgmpy.models import BayesianNetwork
-from pgmpy.estimators import (MaximumLikelihoodEstimator, ParameterEstimator, BayesianEstimator)
+from pgmpy.estimators import (MaximumLikelihoodEstimator, ParameterEstimator, BayesianEstimator, ExpectationMaximization)
 from pgmpy.sampling import BayesianModelSampling
 from pgmpy.metrics import log_likelihood_score
 from pgmpy.inference import VariableElimination
@@ -7,7 +7,8 @@ from random import random
 import pandas as pd
 from math import floor
 from typing import List
-from data_preparation import (Columns, session)
+from data_preparation import Columns
+import matplotlib.pyplot as plt
 
 
 def full_print(df: pd.DataFrame):
@@ -88,11 +89,10 @@ def get_train_validation(graph: List[tuple[Columns, Columns]]):
     return train, validation
 
 
-def build_model(graph):
-    model = BayesianNetwork([(c1.value, c2.value) for c1, c2 in graph])
-    train, validation = get_train_validation(graph)
-    model.fit(train, estimator=BayesianEstimator)
-    return model, train, validation
+def build_model(graph, train, validation):
+    model = BayesianNetwork([(c1.value, c2.value) for c1, c2 in graph], latents=[Columns.LUNGENVOLUMEN.value])
+    model.fit(train, estimator=ExpectationMaximization)
+    return model
 
 
 def print_model_info(model, train, validation):
@@ -120,9 +120,14 @@ def get_original_graph():
             (Columns.IST_EIN_ELTERNTEIL_RAUCHER, Columns.KRANKHEIT_LUNGE_BRONCHIEN),
             (Columns.BILDUNGSSTAND_ELTERN, Columns.KRANKHEIT_LUNGE_BRONCHIEN),
             (Columns.BMI, Columns.KRANKHEIT_LUNGE_BRONCHIEN),
+            (Columns.FEF50, Columns.LUNGENVOLUMEN),
+            (Columns.FEF75, Columns.LUNGENVOLUMEN),
+            (Columns.PEF, Columns.LUNGENVOLUMEN),
+            (Columns.FVC, Columns.LUNGENVOLUMEN),
             ]
 
 
 graph = get_original_graph()
-model, train, validation = build_model(graph)
+train, validation = get_train_validation(graph)
+model = build_model(graph, train, validation)
 print_model_info(model, train, validation)

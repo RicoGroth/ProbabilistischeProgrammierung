@@ -35,10 +35,11 @@ class Columns(Enum):
     FEF50 = 'fef50'                 # Ausatemstrom nach 50%-iger Ausatmung
     FEF75 = 'fef75'                 # Ausatemstrom nach 75%-iger Ausatmung
     PEF = 'pef'                     # Maximaler Ausatemstrom
+    LUNGENVOLUMEN = 'lunvo'
     BEOBACHTUNGSNUMMER = 'nr'
 
     # Beigefuegte Spalten
-    BMI = 'sbmi'
+    BMI = 'bmi'
     ALTER = 'alter'
     ALTER_KATEGORISIERT = 'altka'
     IST_EIN_ELTERNTEIL_RAUCHER = 'rauel'
