@@ -40,6 +40,8 @@ class Columns(Enum):
 
     # Beigefuegte Spalten
     BMI = 'bmi'
+    BMI_KATEGORISIERT_AUSREISSER = 'bmic1'
+    BMI_KATEGORISIERT_REDUKTION = 'bmic2'
     BMI_BERECHNET = 'bmi_b'
     ALTER = 'alter'
     ALTER_KATEGORISIERT = 'altka'
@@ -177,11 +179,27 @@ def with_calculated_bmi(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def with_bmi_categorized(df: pd.DataFrame, categorization, column: Columns) -> pd.DataFrame:
+    df[column.value] = df.apply(lambda x: categorization(x[Columns.BMI.value]), axis=1)
+    return df
+
+
 def prepare_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df = with_age(df)
     df = with_number_of_smoking_parents(df)
     df = with_at_least_one_smoking_parent(df)
     df = with_calculated_bmi(df)
+    df = with_bmi_categorized(df, lambda x: 1 if x > 3 or x < 3 else 0, Columns.BMI_KATEGORISIERT_AUSREISSER)
+
+    def t(x):
+        if x < 3:
+            return 0
+        elif x == 3:
+            return 1
+        else:
+            return 2
+    df = with_bmi_categorized(df, lambda x: 1 if x > 3 or x < 3 else 0, Columns.BMI_KATEGORISIERT_AUSREISSER)
+    df = with_bmi_categorized(df, t, Columns.BMI_KATEGORISIERT_REDUKTION)
     return df
 
 
