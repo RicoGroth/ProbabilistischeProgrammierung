@@ -184,12 +184,33 @@ def with_bmi_categorized(df: pd.DataFrame, categorization, column: Columns) -> p
     return df
 
 
+def with_ternary_categorization(df: pd.DataFrame, column: Columns) -> pd.DataFrame:
+    from math import floor
+    max = df[column.value].max()
+    first_boundary = floor(max / 3) + 1
+    second_boundary = floor(max / 3 * 2) + 1
+
+    def t(x):
+        if x < first_boundary:
+            return 0
+        elif x >= first_boundary and x < second_boundary:
+            return 1
+        else:
+            return 2
+    df[column.value] = df.apply(lambda x: t(x[column.value]), axis=1)
+    return df
+
+
 def prepare_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df = with_age(df)
     df = with_number_of_smoking_parents(df)
     df = with_at_least_one_smoking_parent(df)
     df = with_calculated_bmi(df)
     df = with_bmi_categorized(df, lambda x: 1 if x > 3 or x < 3 else 0, Columns.BMI_KATEGORISIERT_AUSREISSER)
+    df = with_ternary_categorization(df, Columns.PEF)
+    df = with_ternary_categorization(df, Columns.FEF50)
+    df = with_ternary_categorization(df, Columns.FEF75)
+    df = with_ternary_categorization(df, Columns.FVC)
 
     def t(x):
         if x < 3:
@@ -243,7 +264,8 @@ async def get_original_dataset():
 
 async def main():
     prepared_data_path = path.join(path.abspath(path.curdir), 'dataset', 'prepared')
-    prepared = prepare_dataframe(await get_original_dataset())
+    x = await get_original_dataset()
+    prepared = prepare_dataframe(x)
     write_split_datasets(
             prepared,
             path.join(prepared_data_path, 'train.csv'),
