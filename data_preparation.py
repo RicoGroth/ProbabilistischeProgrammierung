@@ -47,6 +47,10 @@ class Columns(Enum):
     ALTER_KATEGORISIERT = 'altka'
     IST_EIN_ELTERNTEIL_RAUCHER = 'rauel'
     ANZAHL_RAUCHENDE_ELTERNTEILE = 'rauan'
+    FVC_KATEGORISIERT = 'fvckat'
+    FEF50_KATEGORISIERT = 'fef50kat'
+    FEF75_KATEGORISIERT= 'fef75kat'
+    PEF_KATEGORISIERT = 'pefkat'
 
     @staticmethod
     def all() -> List[Columns]:
@@ -184,7 +188,7 @@ def with_bmi_categorized(df: pd.DataFrame, categorization, column: Columns) -> p
     return df
 
 
-def with_ternary_categorization(df: pd.DataFrame, column: Columns) -> pd.DataFrame:
+def with_ternary_categorization(df: pd.DataFrame, column: Columns, new_column: Columns) -> pd.DataFrame:
     from math import floor
     max = df[column.value].max()
     first_boundary = floor(max / 3) + 1
@@ -197,7 +201,7 @@ def with_ternary_categorization(df: pd.DataFrame, column: Columns) -> pd.DataFra
             return 1
         else:
             return 2
-    df[column.value] = df.apply(lambda x: t(x[column.value]), axis=1)
+    df[new_column.value] = df.apply(lambda x: t(x[column.value]), axis=1)
     return df
 
 
@@ -207,10 +211,10 @@ def prepare_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df = with_at_least_one_smoking_parent(df)
     df = with_calculated_bmi(df)
     df = with_bmi_categorized(df, lambda x: 1 if x > 3 or x < 3 else 0, Columns.BMI_KATEGORISIERT_AUSREISSER)
-    df = with_ternary_categorization(df, Columns.PEF)
-    df = with_ternary_categorization(df, Columns.FEF50)
-    df = with_ternary_categorization(df, Columns.FEF75)
-    df = with_ternary_categorization(df, Columns.FVC)
+    df = with_ternary_categorization(df, Columns.PEF, Columns.PEF_KATEGORISIERT)
+    df = with_ternary_categorization(df, Columns.FEF50, Columns.FEF50_KATEGORISIERT)
+    df = with_ternary_categorization(df, Columns.FEF75, Columns.FEF75_KATEGORISIERT)
+    df = with_ternary_categorization(df, Columns.FVC, Columns.FVC_KATEGORISIERT)
 
     def t(x):
         if x < 3:
